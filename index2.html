@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dynamic Filter</title>
+    <link rel="stylesheet" href="style2.css">
+    <link rel="icon" href="gni_logo.png" type="image/png">
+</head>
+<body>
+
+    <h1>
+        Result Analysis
+        <a href="https://gnijsonconverter.vercel.app/" class="upload-button">Converter</a>
+    </h1>
+    
+    <div class="filter-container" id="filter-container">
+        <div class="filter-group">
+            <label>Academic Year:</label>
+            <div class="dropdown" id="academic-year-dropdown">
+                <div class="dropdown-button" onclick="toggleDropdown('academic-year-dropdown-content')">Select Academic Year</div>
+                <div class="dropdown-content" id="academic-year-dropdown-content"></div>
+            </div>
+        </div>
+        <div class="filter-group">
+            <label>B. Tech Year:</label>
+            <div class="dropdown" id="btech-year-dropdown">
+                <div class="dropdown-button" onclick="toggleDropdown('btech-year-dropdown-content')">Select B. Tech Year</div>
+                <div class="dropdown-content" id="btech-year-dropdown-content"></div>
+            </div>
+        </div>
+        <div class="filter-group">
+            <label>Semester:</label>
+            <div class="dropdown" id="sem-dropdown">
+                <div class="dropdown-button" onclick="toggleDropdown('sem-dropdown-content')">Select Semester</div>
+                <div class="dropdown-content" id="sem-dropdown-content"></div>
+            </div>
+        </div>
+        <div class="filter-group">
+            <label>Section:</label>
+            <div class="dropdown" id="section-dropdown">
+                <div class="dropdown-button" onclick="toggleDropdown('section-dropdown-content')">Select Section</div>
+                <div class="dropdown-content" id="section-dropdown-content"></div>
+            </div>
+        </div>
+        <div class="filter-group">
+            <label>Name of the Subject:</label>
+            <div class="dropdown" id="subject-dropdown">
+                <div class="dropdown-button" onclick="toggleDropdown('subject-dropdown-content')">Select Subject</div>
+                <div class="dropdown-content" id="subject-dropdown-content">
+                    <input type="text" id="subject-search" oninput="debouncedFilterSubjects()" placeholder="Search subjects...">
+                    <div id="subject-checkboxes"></div>
+                    <div class="no-results" id="subject-no-results">No results found</div>
+                </div>
+            </div>
+        </div>
+        <div class="filter-group">
+            <label>Name of the Teacher:</label>
+            <div class="dropdown" id="teacher-dropdown">
+                <div class="dropdown-button" onclick="toggleDropdown('teacher-dropdown-content')">Select Teacher</div>
+                <div class="dropdown-content" id="teacher-dropdown-content">
+                    <input type="text" id="teacher-search" oninput="debouncedFilterTeachers()" placeholder="Search teachers...">
+                    <div id="teacher-checkboxes"></div>
+                    <div class="no-results" id="teacher-no-results">No results found</div>
+                </div>
+            </div>
+        </div>
+        <div class="filter-group">
+            <label for="pass-rate-operator">Pass comparison:</label>
+            <select id="pass-rate-operator">
+                <option value="equal">Equal</option>
+                <option value="greater">Greater than</option>
+                <option value="less">Less than</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="pass-rate-value">% of Pass:</label>
+            <input type="number" id="pass-rate-value" placeholder="Enter pass percentage">
+        </div>
+    </div>
+
+    <button onclick="applyFilters()">Filter</button>
+
+    <table>
+        <thead>
+            <tr id="table-header"></tr>
+        </thead>
+        <tbody id="data-body"></tbody>
+    </table>
+
+    <script>
+        let data = [];
+        let firstItem = null;
+        let debounceTimer;
+
+        async function loadData() {
+            const response = await fetch('teacherData.json');
+            data = await response.json();
+            firstItem = data[0];
+
+            generateCheckboxes();
+            generateTableHeaders();
+            renderTable(data);
+        }
+
+        function generateCheckboxes() {
+            const uniqueValues = {
+                "Academic Year": new Set(),
+                "B. Tech. Year": new Set(),
+                "Sem": new Set(),
+                "Section": new Set(),
+                "Name of the subject": new Set(),
+                "Name of the teacher": new Set()
+            };
+
+            data.forEach(item => {
+                uniqueValues["Academic Year"].add(item["Academic Year"].trim());
+                uniqueValues["B. Tech. Year"].add(item["B. Tech. Year"].trim());
+                uniqueValues["Sem"].add(item["Sem"].toString().trim());
+                uniqueValues["Section"].add(item["Section"].trim());
+                uniqueValues["Name of the subject"].add(item["Name of the subject"].trim());
+                uniqueValues["Name of the teacher"].add(item["Name of the teacher"].trim());
+            });
+
+            populateCheckboxes('academic-year-dropdown-content', Array.from(uniqueValues["Academic Year"]));
+            populateCheckboxes('btech-year-dropdown-content', Array.from(uniqueValues["B. Tech. Year"]));
+            populateCheckboxes('sem-dropdown-content', Array.from(uniqueValues["Sem"]));
+            populateCheckboxes('section-dropdown-content', Array.from(uniqueValues["Section"]));
+            populateCheckboxes('subject-checkboxes', Array.from(uniqueValues["Name of the subject"]));
+            populateCheckboxes('teacher-checkboxes', Array.from(uniqueValues["Name of the teacher"]));
+        }
+
+        function populateCheckboxes(id, values) {
+            const container = document.getElementById(id);
+            container.innerHTML = "";
+            values.sort();
+            values.forEach(value => {
+                const label = document.createElement('label');
+                label.innerHTML = `<input type="checkbox" value="${value}" onchange="updateDropdownButton('${id}')"> ${value}`;
+                container.appendChild(label);
+            });
+        }
+
+        function toggleDropdown(dropdownId) {
+            const dropdowns = document.querySelectorAll('.dropdown-content');
+            dropdowns.forEach(dropdown => {
+                if (dropdown.id !== dropdownId) {
+                    dropdown.classList.remove('show');
+                }
+            });
+            document.getElementById(dropdownId).classList.toggle('show');
+        }
+
+        function updateDropdownButton(dropdownId) {
+            const checkboxes = document.querySelectorAll(`#${dropdownId} input[type="checkbox"]`);
+            const selectedValues = Array.from(checkboxes).filter(checkbox => checkbox.checked).map(checkbox => checkbox.value);
+            const buttonText = selectedValues.length > 0 ? selectedValues.join(', ') : 'Select';
+            document.querySelector(`#${dropdownId.replace('-content', '')} .dropdown-button`).textContent = buttonText;
+        }
+
+        function debouncedFilterSubjects() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(filterSubjects, 300);
+        }
+
+        function filterSubjects() {
+            const searchValue = document.getElementById('subject-search').value.toLowerCase();
+            const checkboxesContainer = document.getElementById('subject-checkboxes');
+            const noResults = document.getElementById('subject-no-results');
+            const checkboxes = checkboxesContainer.querySelectorAll('label');
+
+            let hasResults = false;
+
+            checkboxes.forEach(label => {
+                const checkbox = label.querySelector('input[type="checkbox"]');
+                const subjectName = checkbox.value.toLowerCase();
+                if (subjectName.includes(searchValue)) {
+                    label.style.display = 'block';
+                    hasResults = true;
+                } else {
+                    label.style.display = 'none';
+                }
+            });
+
+            noResults.style.display = hasResults ? 'none' : 'block';
+        }
+
+        function debouncedFilterTeachers() {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(filterTeachers, 300);
+        }
+
+        function filterTeachers() {
+            const searchValue = document.getElementById('teacher-search').value.toLowerCase();
+            const checkboxesContainer = document.getElementById('teacher-checkboxes');
+            const noResults = document.getElementById('teacher-no-results');
+            const checkboxes = checkboxesContainer.querySelectorAll('label');
+
+            let hasResults = false;
+
+            checkboxes.forEach(label => {
+                const checkbox = label.querySelector('input[type="checkbox"]');
+                const teacherName = checkbox.value.toLowerCase();
+                if (teacherName.includes(searchValue)) {
+                    label.style.display = 'block';
+                    hasResults = true;
+                } else {
+                    label.style.display = 'none';
+                }
+            });
+
+            noResults.style.display = hasResults ? 'none' : 'block';
+        }
+
+        function applyFilters() {
+            let filteredData = data; // Start with the full data set
+        
+            // Filter by Academic Year
+            const academicYearFilters = getCheckedValues('academic-year-dropdown-content');
+            if (academicYearFilters.length > 0) {
+                filteredData = filteredData.filter(item => academicYearFilters.includes(item["Academic Year"].trim()));
+            }
+        
+            // Filter by B. Tech Year
+            const btechYearFilters = getCheckedValues('btech-year-dropdown-content');
+            if (btechYearFilters.length > 0) {
+                filteredData = filteredData.filter(item => btechYearFilters.includes(item["B. Tech. Year"].trim()));
+            }
+        
+            // Filter by Semester
+            const semFilters = getCheckedValues('sem-dropdown-content');
+            if (semFilters.length > 0) {
+                filteredData = filteredData.filter(item => semFilters.includes(item["Sem"].toString().trim()));
+            }
+        
+            // Filter by Section
+            const sectionFilters = getCheckedValues('section-dropdown-content');
+            if (sectionFilters.length > 0) {
+                filteredData = filteredData.filter(item => sectionFilters.includes(item["Section"].trim()));
+            }
+        
+            // Filter by Name of the Subject
+            const subjectFilters = getCheckedValues('subject-checkboxes');
+            if (subjectFilters.length > 0) {
+                filteredData = filteredData.filter(item => subjectFilters.includes(item["Name of the subject"].trim()));
+            }
+        
+            // Filter by Name of the Teacher
+            const teacherFilters = getCheckedValues('teacher-checkboxes');
+            if (teacherFilters.length > 0) {
+                filteredData = filteredData.filter(item => teacherFilters.includes(item["Name of the teacher"].trim()));
+            }
+        
+            // Filter by Pass Rate
+            const passRateOperator = document.getElementById('pass-rate-operator').value;
+            const passRateValue = parseFloat(document.getElementById('pass-rate-value').value);
+            
+            if (!isNaN(passRateValue)) {
+                filteredData = filteredData.filter(item => {
+                    const passRate = parseFloat(item["% of Pass"]); // Use the correct key
+                    if (passRateOperator === 'equal') {
+                        return passRate === passRateValue;
+                    } else if (passRateOperator === 'greater') {
+                        return passRate > passRateValue;
+                    } else if (passRateOperator === 'less') {
+                        return passRate < passRateValue;
+                    }
+                    return true;
+                });
+            }
+        
+            renderTable(filteredData); // Render the filtered data
+        }
+        
+        function getCheckedValues(containerId) {
+            const checkboxes = document.querySelectorAll(`#${containerId} input[type="checkbox"]`);
+            return Array.from(checkboxes).filter(checkbox => checkbox.checked).map(checkbox => checkbox.value);
+        }
+
+        function renderTable(dataToRender) {
+            const tableHeader = document.getElementById('table-header');
+            const dataBody = document.getElementById('data-body');
+
+            tableHeader.innerHTML = '';
+            dataBody.innerHTML = '';
+
+            if (dataToRender.length > 0) {
+                const headers = Object.keys(dataToRender[0]);
+                headers.forEach(header => {
+                    const th = document.createElement('th');
+                    th.textContent = header;
+                    tableHeader.appendChild(th);
+                });
+
+                dataToRender.forEach(item => {
+                    const row = document.createElement('tr');
+                    headers.forEach(header => {
+                        const cell = document.createElement('td');
+                        cell.textContent = item[header];
+                        row.appendChild(cell);
+                    });
+                    dataBody.appendChild(row);
+                });
+            } else {
+                const row = document.createElement('tr');
+                const cell = document.createElement('td');
+                cell.colSpan = 100; // You can adjust this if needed
+                cell.textContent = 'No results found';
+                row.appendChild(cell);
+                dataBody.appendChild(row);
+            }
+        }
+
+        window.onload = loadData;
+
+    </script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            background-color: #f9f9f9;
+        }
+        
+        h1 {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .upload-button {
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: #fff;
+            text-decoration: none;
+            border-radius: 5px;
+            border: none;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .upload-button:hover {
+            background-color: #0056b3;
+        }
+        
+        .filter-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .label {
+            margin-bottom: 5px;
+        }
+        
+        .dropdown {
+            position: relative;
+        }
+        
+        .dropdown-button {
+            cursor: pointer;
+            padding: 10px;
+            background-color: #f1f1f1;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            text-align: left;
+        }
+        
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background-color: #fff;
+            min-width: 200px;
+            border: 1px solid #ccc;
+            z-index: 1;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .dropdown-content.show {
+            display: block;
+        }
+        
+        .dropdown-content label {
+            display: block;
+            padding: 8px;
+            cursor: pointer;
+        }
+        
+        .dropdown-content label:hover {
+            background-color: #f1f1f1;
+        }
+        
+        .no-results {
+            display: none;
+            padding: 8px;
+            color: #ff0000;
+        }
+        
+        button {
+            font-size: 18px;
+            padding: 15px 30px;
+            background-color: red;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin-top: 20px;
+        }
+        
+        button:hover {
+            background-color: darkred;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        th, td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        
+        th {
+            background-color: #f2f2f2;
+        }
+        
+        @media (max-width: 600px) {
+            h1 {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .upload-button {
+                margin-top: 10px; /* Space between heading and button on small screens */
+            }
+        }
+        
+    </style>
+</body>
+</html>
